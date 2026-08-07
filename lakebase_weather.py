@@ -26,29 +26,62 @@ from psycopg2.extras import RealDictCursor, execute_values
 EMBEDDING_DIM = 384  # sentence-transformers/all-MiniLM-L6-v2
 
 
-def _connect_kwargs():
-    """Prefer individual PG* env vars (injected when a Lakebase database is
-    attached as an app resource — no secret needed). Fall back to a single
-    DATABASE_URL string (secret scope via valueFrom, or local/CI export).
+def _parse_url(url):
+    """Parse a postgres URL into psycopg2 kwargs.
+
+    We do NOT hand the raw URL string to psycopg2/libpq, because its URL parser
+    silently drops passwords containing special characters (@, :, /, %, ...),
+    producing 'fe_sendauth: no password supplied'. Python's urlparse splits the
+    userinfo correctly (rpartition on '@'), and we percent-decode each field.
     """
+    from urllib.parse import urlparse, unquote
+
+    u = urlparse(url.strip())
+    kwargs = {
+        "host": u.hostname,
+        "port": u.port or 5432,
+        "dbname": (u.path or "/").lstrip("/") or None,
+        "user": unquote(u.username) if u.username else None,
+        "password": unquote(u.password) if u.password else None,
+    }
+    # Carry through sslmode (and any other simple query params like sslmode).
+    if u.query:
+        from urllib.parse import parse_qs
+        q = parse_qs(u.query)
+        if "sslmode" in q:
+            kwargs["sslmode"] = q["sslmode"][0]
+    kwargs.setdefault("sslmode", "require")
+    return kwargs
+
+
+def _connect_kwargs():
+    """Prefer a full DATABASE_URL (contains the static-role password — the
+    reliable path on Free Edition, where an attached Lakebase resource injects
+    PGHOST/PGUSER but NOT a usable PGPASSWORD). Fall back to individual PG*
+    vars only when no URL is set.
+    """
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return _parse_url(url)
     if os.environ.get("PGHOST"):
+        if not os.environ.get("PGPASSWORD"):
+            raise RuntimeError(
+                "PGHOST is set but PGPASSWORD is empty. On Free Edition the "
+                "Lakebase resource does not inject a usable password — set "
+                "DATABASE_URL (with your static-role password) instead."
+            )
         return {
             "host": os.environ["PGHOST"],
             "port": os.environ.get("PGPORT", "5432"),
             "dbname": os.environ.get("PGDATABASE"),
             "user": os.environ.get("PGUSER"),
-            "password": os.environ.get("PGPASSWORD"),
+            "password": os.environ["PGPASSWORD"],
             "sslmode": os.environ.get("PGSSLMODE", "require"),
         }
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError(
-            "No database config found. Attach the Lakebase database as an app "
-            "resource (injects PGHOST/PGUSER/...), or set DATABASE_URL."
-        )
-    # Env vars can carry a trailing newline/space that psycopg2 forwards
-    # verbatim (e.g. sslmode="require ") and rejects.
-    return {"dsn": url.strip()}
+    raise RuntimeError(
+        "No database config found. Set DATABASE_URL (recommended on Free "
+        "Edition), or attach a Lakebase resource that injects PGHOST/PGPASSWORD."
+    )
 
 
 @contextmanager
