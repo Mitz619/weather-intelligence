@@ -1,13 +1,17 @@
 # app.yaml — Databricks Apps configuration
 #
-# Database credentials are NOT set here. Attach your Lakebase instance as an
-# app resource in the Databricks App UI; Databricks then injects
-# PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD at runtime, and
-# get_connection() builds the connection from those. Nothing sensitive in yaml.
+# The DATABASE resource auto-injects PGHOST / PGPORT / PGDATABASE / PGUSER
+# (no yaml needed). But a SECRET resource is NOT auto-injected — you must bind
+# it to an env var here with valueFrom, referencing the secret's Resource key.
 #
-# Alternative (if you prefer a single URL from a secret scope), add instead:
-#   env:
-#     - name: "DATABASE_URL"
-#       valueFrom: "database-url"   # secret KEY name, never the value itself
+# Secret resource (set in the app UI):
+#   scope=weather-app, secret=pgpassword, Resource key=PGPASSWORD, Can read
+#
+# The line below turns that secret into the PGPASSWORD env var the app reads,
+# completing the PG* set so lakebase_weather.py can connect.
 
 command: ["python", "app.py"]
+
+env:
+  - name: "PGPASSWORD"
+    valueFrom: "PGPASSWORD"   # <- the Secret resource's Resource key
