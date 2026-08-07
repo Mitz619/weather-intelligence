@@ -1,14 +1,13 @@
 # app.yaml — Databricks Apps configuration
 #
-# DATABASE_URL is your Lakebase Postgres URL using the static-password role
-# created in the Lakebase UI (Free Edition does not support SDK credential
-# generation). Store it in a Databricks secret scope and reference the key
-# via valueFrom — never hardcode the URL here.
+# Database credentials are NOT set here. Attach your Lakebase instance as an
+# app resource in the Databricks App UI; Databricks then injects
+# PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD at runtime, and
+# get_connection() builds the connection from those. Nothing sensitive in yaml.
 #
-# Format: postgresql://<role>:<password>@<host>:5432/<database>?sslmode=require
+# Alternative (if you prefer a single URL from a secret scope), add instead:
+#   env:
+#     - name: "DATABASE_URL"
+#       valueFrom: "database-url"   # secret KEY name, never the value itself
 
 command: ["python", "app.py"]
-
-env:
-  - name: "DATABASE_URL"
-    valueFrom: "database-url"   # secret key name in your secret scope

@@ -26,12 +26,34 @@ from psycopg2.extras import RealDictCursor, execute_values
 EMBEDDING_DIM = 384  # sentence-transformers/all-MiniLM-L6-v2
 
 
-@contextmanager
-def get_connection():
+def _connect_kwargs():
+    """Prefer individual PG* env vars (injected when a Lakebase database is
+    attached as an app resource — no secret needed). Fall back to a single
+    DATABASE_URL string (secret scope via valueFrom, or local/CI export).
+    """
+    if os.environ.get("PGHOST"):
+        return {
+            "host": os.environ["PGHOST"],
+            "port": os.environ.get("PGPORT", "5432"),
+            "dbname": os.environ.get("PGDATABASE"),
+            "user": os.environ.get("PGUSER"),
+            "password": os.environ.get("PGPASSWORD"),
+            "sslmode": os.environ.get("PGSSLMODE", "require"),
+        }
     url = os.environ.get("DATABASE_URL")
     if not url:
-        raise RuntimeError("DATABASE_URL is not set (check app.yaml secret valueFrom).")
-    conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        raise RuntimeError(
+            "No database config found. Attach the Lakebase database as an app "
+            "resource (injects PGHOST/PGUSER/...), or set DATABASE_URL."
+        )
+    # Env vars can carry a trailing newline/space that psycopg2 forwards
+    # verbatim (e.g. sslmode="require ") and rejects.
+    return {"dsn": url.strip()}
+
+
+@contextmanager
+def get_connection():
+    conn = psycopg2.connect(cursor_factory=RealDictCursor, **_connect_kwargs())
     try:
         yield conn
         conn.commit()
