@@ -1,0 +1,37 @@
+# Scheduled sync + embed (stretch goal), and the fallback path if outbound
+# calls to api.weather.gov are ever blocked from Databricks compute.
+# Same pattern as the OpenAlex pipeline: GitHub Actions does the external
+# API calls, then writes straight into Lakebase over its public endpoint.
+#
+# Required repo secret: DATABASE_URL (Lakebase Postgres URL with sslmode=require)
+
+name: weather-sync
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch: {}      # manual runs from the Actions tab
+
+jobs:
+  sync-and-embed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install requests psycopg2-binary sentence-transformers
+
+      - name: Harvest NWS documents
+        run: |
+          python weather_client.py "Chicago, IL" "Austin, TX" "Miami, FL" \
+            --limit 50 --out weather_docs.jsonl
+
+      - name: Upsert + embed into Lakebase
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/ingest_weather_embeddings.py --from-jsonl weather_docs.jsonl
