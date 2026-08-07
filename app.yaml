@@ -1,17 +1,21 @@
 # app.yaml — Databricks Apps configuration
 #
-# The DATABASE resource auto-injects PGHOST / PGPORT / PGDATABASE / PGUSER
-# (no yaml needed). But a SECRET resource is NOT auto-injected — you must bind
-# it to an env var here with valueFrom, referencing the secret's Resource key.
+# The DATABASE resource injects PGHOST / PGPORT / PGDATABASE, and also sets
+# PGUSER to the app's OAuth service principal (which expects a JWT token, not a
+# password). We authenticate as the STATIC-PASSWORD role instead, so we must
+# override PGUSER to that role's name and supply its password from the secret.
 #
-# Secret resource (set in the app UI):
-#   scope=weather-app, secret=pgpassword, Resource key=PGPASSWORD, Can read
+# Secret resource (app UI): scope=weather-app, secret=pgpassword,
+#                           Resource key=PGPASSWORD, Can read
 #
-# The line below turns that secret into the PGPASSWORD env var the app reads,
-# completing the PG* set so lakebase_weather.py can connect.
+# If your static role name is not "Weather", change PGUSER below to match.
 
 command: ["python", "app.py"]
 
 env:
+  - name: "PGUSER"
+    value: "Weather"          # static-password Postgres role (not the OAuth SP)
   - name: "PGPASSWORD"
-    valueFrom: "PGPASSWORD"   # <- the Secret resource's Resource key
+    valueFrom: "PGPASSWORD"    # the Secret resource's Resource key
+  - name: "PGSSLMODE"
+    value: "require"
